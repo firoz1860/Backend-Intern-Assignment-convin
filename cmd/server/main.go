@@ -60,4 +60,10 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("shutdown", "err", err)
 	}
+
+	// srv.Shutdown only waits for in-flight HTTP handlers; it knows nothing
+	// about the recording-processing goroutines Ingest spawns after the
+	// handler has already returned. Without this, whatever was mid-flight
+	// at deploy time was simply killed when the process exited.
+	svc.Wait(shutdownCtx)
 }

@@ -115,6 +115,72 @@ func (s *Store) IncrementAccountStats(ctx context.Context, accountID string, dur
 	return err
 }
 
+// IngestEvent persists one webhook delivery atomically: the event row, the
+// call upsert, and the account_stats increment all happen in a single
+// transaction, and all three are skipped together if event_id has already
+// been seen.
+//
+// Idempotency is enforced by the UNIQUE constraint on events.event_id
+// (migrations/002_dedup_events.sql) combined with ON CONFLICT DO NOTHING:
+// that decision is made by Postgres in one statement, so concurrent
+// redeliveries of the same event_id can't both "win" the way a prior
+// SELECT-then-INSERT check could. Wrapping the three writes in a transaction
+// also closes a narrower gap: without it, a failure between InsertEvent and
+// IncrementAccountStats would leave the event marked as seen while the stats
+// increment was lost, and a redelivery would then be (wrongly) ignored as a
+// duplicate instead of retried.
+//
+// It reports whether this call actually inserted a new event (false means
+// it was a redelivery and nothing was written).
+func (s *Store) IngestEvent(ctx context.Context, e Event) (inserted bool, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO events (event_id, call_id, account_id, payload)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (event_id) DO NOTHING`,
+		e.EventID, e.CallID, e.AccountID, e.Payload)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		// Already seen: commit the no-op transaction and tell the caller
+		// there's nothing further to do.
+		return false, tx.Commit(ctx)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO calls (call_id, account_id, status, duration_sec, recording_url, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, now())
+		 ON CONFLICT (call_id) DO UPDATE SET
+		     status        = EXCLUDED.status,
+		     duration_sec  = EXCLUDED.duration_sec,
+		     recording_url = EXCLUDED.recording_url,
+		     updated_at    = now()`,
+		e.CallID, e.AccountID, e.Status, e.DurationSec, e.RecordingURL); err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO account_stats (account_id, call_count, total_duration_sec)
+		 VALUES ($1, 1, $2)
+		 ON CONFLICT (account_id) DO UPDATE SET
+		     call_count         = account_stats.call_count + 1,
+		     total_duration_sec = account_stats.total_duration_sec + EXCLUDED.total_duration_sec`,
+		e.AccountID, e.DurationSec); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // AccountStats reads the durable aggregate. A missing account reads as zero.
 func (s *Store) AccountStats(ctx context.Context, accountID string) (Stats, error) {
 	var st Stats

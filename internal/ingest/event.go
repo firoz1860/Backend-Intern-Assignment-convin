@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// Event is the call-completion webhook payload sent by the telephony provider.
 type Event struct {
 	EventID      string    `json:"event_id"`
 	CallID       string    `json:"call_id"`
@@ -23,7 +22,6 @@ var validStatuses = map[string]bool{
 	"no_answer": true,
 }
 
-// Validate reports whether the payload is well-formed enough to store.
 func (e Event) Validate() error {
 	if e.EventID == "" {
 		return errors.New("event_id is required")

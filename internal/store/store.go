@@ -1,4 +1,3 @@
-// Package store persists webhook events, calls, and per-account aggregates.
 package store
 
 import (
@@ -10,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Event is one call-completion webhook delivery.
 type Event struct {
 	EventID      string
 	CallID       string
@@ -22,18 +20,15 @@ type Event struct {
 	Payload      []byte
 }
 
-// Stats is the durable per-account aggregate.
 type Stats struct {
 	CallCount        int64
 	TotalDurationSec int64
 }
 
-// Store is a Postgres-backed repository.
 type Store struct {
 	pool *pgxpool.Pool
 }
 
-// New opens a connection pool bounded to maxConns.
 func New(ctx context.Context, dsn string, maxConns int32) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -52,13 +47,10 @@ func New(ctx context.Context, dsn string, maxConns int32) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
-// Pool exposes the underlying pool for tests and ad-hoc queries.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
-// Close releases all pooled connections.
 func (s *Store) Close() { s.pool.Close() }
 
-// EventExists reports whether an event with this ID has already been stored.
 func (s *Store) EventExists(ctx context.Context, eventID string) (bool, error) {
 	var one int
 	err := s.pool.QueryRow(ctx,
@@ -72,7 +64,6 @@ func (s *Store) EventExists(ctx context.Context, eventID string) (bool, error) {
 	return true, nil
 }
 
-// InsertEvent stores the raw delivery.
 func (s *Store) InsertEvent(ctx context.Context, e Event) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO events (event_id, call_id, account_id, payload)
@@ -81,7 +72,6 @@ func (s *Store) InsertEvent(ctx context.Context, e Event) error {
 	return err
 }
 
-// UpsertCall creates or refreshes the call record for this event.
 func (s *Store) UpsertCall(ctx context.Context, e Event) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO calls (call_id, account_id, status, duration_sec, recording_url, updated_at)
@@ -95,7 +85,6 @@ func (s *Store) UpsertCall(ctx context.Context, e Event) error {
 	return err
 }
 
-// MarkRecordingProcessed flags the call's recording as handled.
 func (s *Store) MarkRecordingProcessed(ctx context.Context, callID string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE calls SET recording_processed = TRUE, updated_at = now()
@@ -103,7 +92,6 @@ func (s *Store) MarkRecordingProcessed(ctx context.Context, callID string) error
 	return err
 }
 
-// IncrementAccountStats folds one completed call into the durable aggregate.
 func (s *Store) IncrementAccountStats(ctx context.Context, accountID string, durationSec int) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO account_stats (account_id, call_count, total_duration_sec)
@@ -115,29 +103,12 @@ func (s *Store) IncrementAccountStats(ctx context.Context, accountID string, dur
 	return err
 }
 
-// IngestEvent persists one webhook delivery atomically: the event row, the
-// call upsert, and the account_stats increment all happen in a single
-// transaction, and all three are skipped together if event_id has already
-// been seen.
-//
-// Idempotency is enforced by the UNIQUE constraint on events.event_id
-// (migrations/002_dedup_events.sql) combined with ON CONFLICT DO NOTHING:
-// that decision is made by Postgres in one statement, so concurrent
-// redeliveries of the same event_id can't both "win" the way a prior
-// SELECT-then-INSERT check could. Wrapping the three writes in a transaction
-// also closes a narrower gap: without it, a failure between InsertEvent and
-// IncrementAccountStats would leave the event marked as seen while the stats
-// increment was lost, and a redelivery would then be (wrongly) ignored as a
-// duplicate instead of retried.
-//
-// It reports whether this call actually inserted a new event (false means
-// it was a redelivery and nothing was written).
 func (s *Store) IngestEvent(ctx context.Context, e Event) (inserted bool, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	tag, err := tx.Exec(ctx,
 		`INSERT INTO events (event_id, call_id, account_id, payload)
@@ -148,8 +119,6 @@ func (s *Store) IngestEvent(ctx context.Context, e Event) (inserted bool, err er
 		return false, err
 	}
 	if tag.RowsAffected() == 0 {
-		// Already seen: commit the no-op transaction and tell the caller
-		// there's nothing further to do.
 		return false, tx.Commit(ctx)
 	}
 
@@ -181,7 +150,6 @@ func (s *Store) IngestEvent(ctx context.Context, e Event) (inserted bool, err er
 	return true, nil
 }
 
-// AccountStats reads the durable aggregate. A missing account reads as zero.
 func (s *Store) AccountStats(ctx context.Context, accountID string) (Stats, error) {
 	var st Stats
 	err := s.pool.QueryRow(ctx,

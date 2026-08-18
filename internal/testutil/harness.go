@@ -1,4 +1,3 @@
-// Package testutil provides shared setup for tests that need Postgres.
 package testutil
 
 import (
@@ -17,13 +16,6 @@ import (
 	"github.com/convin/webhook-ingest/internal/store"
 )
 
-// IDs returns event, call, and account identifiers unique to this test, and
-// removes any rows owned by them before the test runs and again afterwards.
-//
-// `go test ./...` runs package test binaries in parallel against one shared
-// database, so tests must never truncate shared tables. Every row carries an
-// account_id, so deleting by account removes exactly this test's data and
-// nothing else.
 func IDs(t *testing.T, s *store.Store) (eventID, callID, accountID string) {
 	t.Helper()
 	base := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
@@ -44,8 +36,6 @@ func IDs(t *testing.T, s *store.Store) (eventID, callID, accountID string) {
 	return eventID, callID, accountID
 }
 
-// NewStore opens a store against the configured database and closes it
-// when the test finishes.
 func NewStore(t *testing.T) *store.Store {
 	t.Helper()
 	cfg := config.Load()
@@ -57,9 +47,6 @@ func NewStore(t *testing.T) *store.Store {
 	return s
 }
 
-// NewService builds an ingest.Service wired to the configured Postgres and
-// Redis, for tests that need to call it directly (e.g. to exercise Wait)
-// rather than going through HTTP.
 func NewService(t *testing.T) (*ingest.Service, *store.Store) {
 	t.Helper()
 	cfg := config.Load()
@@ -76,8 +63,6 @@ func NewService(t *testing.T) (*ingest.Service, *store.Store) {
 	return ingest.New(s, stats.NewCache(), rdb, log), s
 }
 
-// NewServer starts an in-process HTTP server backed by the configured
-// Postgres and Redis, and returns it alongside the store for assertions.
 func NewServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	svc, s := NewService(t)

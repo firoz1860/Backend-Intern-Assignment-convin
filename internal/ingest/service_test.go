@@ -13,7 +13,6 @@ import (
 	"github.com/convin/webhook-ingest/internal/testutil"
 )
 
-// eventJSON builds a well-formed call-completion payload.
 func eventJSON(eventID, callID, accountID string) string {
 	return fmt.Sprintf(`{
 	  "event_id":      %q,
@@ -86,12 +85,6 @@ func TestDuplicateDeliveryIsIgnored(t *testing.T) {
 	}
 }
 
-// TestConcurrentDuplicateDeliveriesAreNotDoubleCounted reproduces the ops
-// report directly: redeliveries that race each other must still land as one
-// event and one increment. Sequential redeliveries (TestDuplicateDeliveryIsIgnored)
-// don't exercise this at all - the old EventExists-then-InsertEvent check had
-// a window between the read and the write that only concurrent delivery
-// opens up.
 func TestConcurrentDuplicateDeliveriesAreNotDoubleCounted(t *testing.T) {
 	srv, st := testutil.NewServer(t)
 	eventID, callID, accountID := testutil.IDs(t, st)
@@ -104,9 +97,6 @@ func TestConcurrentDuplicateDeliveriesAreNotDoubleCounted(t *testing.T) {
 	for i := 0; i < redeliveries; i++ {
 		go func() {
 			defer wg.Done()
-			// Not using the post() helper here: t.Fatalf must only be called
-			// from the test's own goroutine, so failures from these workers
-			// are reported with t.Errorf instead.
 			resp, err := http.Post(srv.URL+"/webhooks/calls", "application/json", strings.NewReader(body))
 			if err != nil {
 				t.Errorf("post: %v", err)
@@ -141,14 +131,6 @@ func TestConcurrentDuplicateDeliveriesAreNotDoubleCounted(t *testing.T) {
 	}
 }
 
-// TestRecordingIsMarkedProcessedAfterAsyncWork reproduces "recordings never
-// get marked processed, and nothing in the logs about it". Ingest spawns a
-// goroutine that finishes after the HTTP handler has already returned; that
-// goroutine used to inherit the request's context, which net/http cancels
-// the instant the handler returns, so the update almost always failed - and
-// the error was discarded rather than logged. This polls well past that
-// window, so it only passes once the goroutine is using a context that
-// outlives the request.
 func TestRecordingIsMarkedProcessedAfterAsyncWork(t *testing.T) {
 	srv, st := testutil.NewServer(t)
 	eventID, callID, accountID := testutil.IDs(t, st)
@@ -176,11 +158,6 @@ func TestRecordingIsMarkedProcessedAfterAsyncWork(t *testing.T) {
 	}
 }
 
-// TestWaitBlocksUntilBackgroundWorkFinishes reproduces "every time we
-// deploy, whatever was in flight seems to just disappear": Service.Wait is
-// what a graceful shutdown calls after the HTTP server stops accepting
-// connections, and it must not return before the background recording work
-// it's tracking has actually finished.
 func TestWaitBlocksUntilBackgroundWorkFinishes(t *testing.T) {
 	svc, st := testutil.NewService(t)
 	eventID, callID, accountID := testutil.IDs(t, st)

@@ -1,4 +1,3 @@
-// Package config loads service configuration from the environment.
 package config
 
 import (
@@ -6,17 +5,13 @@ import (
 	"strconv"
 )
 
-// Config holds everything the service needs to start.
 type Config struct {
 	HTTPAddr    string
 	PostgresDSN string
 	RedisAddr   string
-	// DBMaxConns bounds the Postgres connection pool.
 	DBMaxConns int32
 }
 
-// Load reads configuration from the environment, falling back to the
-// defaults used by docker-compose.yml.
 func Load() Config {
 	return Config{
 		HTTPAddr:    env("HTTP_ADDR", ":8080"),

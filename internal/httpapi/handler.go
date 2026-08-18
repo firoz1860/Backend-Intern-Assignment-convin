@@ -1,4 +1,3 @@
-// Package httpapi exposes the service over HTTP.
 package httpapi
 
 import (
@@ -9,7 +8,6 @@ import (
 	"github.com/convin/webhook-ingest/internal/ingest"
 )
 
-// Handler serves the webhook and stats endpoints.
 type Handler struct {
 	svc *ingest.Service
 	log *slog.Logger

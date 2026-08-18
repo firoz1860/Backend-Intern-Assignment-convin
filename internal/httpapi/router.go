@@ -7,7 +7,6 @@ import (
 	"github.com/convin/webhook-ingest/internal/ingest"
 )
 
-// NewRouter wires every route the service serves.
 func NewRouter(svc *ingest.Service, log *slog.Logger) http.Handler {
 	h := &Handler{svc: svc, log: log}
 
